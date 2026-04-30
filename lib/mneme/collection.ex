@@ -1,6 +1,34 @@
 defmodule Mneme.Collection do
   @moduledoc """
-  Idiomatic collection API over the native `mneme` engine.
+  Primary user-facing API for vector collections.
+
+  `Mneme.Collection` validates Elixir inputs and delegates native work to
+  `Mneme.Native`. This wrapper is intentionally strict so invalid inputs fail
+  early with `%Mneme.Error{}` values instead of reaching the native layer.
+
+  A collection tracks four core attributes:
+
+  - `ref`: native collection handle
+  - `name`: logical collection name
+  - `dimension`: vector width
+  - `metric`: similarity metric (`:cosine` in this phase)
+
+  Typical lifecycle:
+
+  1. create or load a collection (`new/2`, `load/2`)
+  2. insert or delete rows (`insert/4`, `insert_many/3`, `delete/2`)
+  3. query vectors (`search/3`)
+  4. optionally build HNSW (`build_hnsw/2`) and persist (`save/2`)
+  5. close resources (`close/1`)
+
+  ## Examples
+
+      iex> Mneme.Collection.new("docs")
+      {:error, %Mneme.Error{code: :invalid_argument, message: "dimension must be a positive integer"}}
+
+      iex> collection = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.search(collection, [1.0, 0.0, 0.0], limit: 5)
+      {:error, %Mneme.Error{code: :native_unavailable, message: "NIF is not loaded"}}
   """
 
   alias Mneme.{Error, Native, Result}
@@ -17,6 +45,22 @@ defmodule Mneme.Collection do
 
   @type entry :: {String.t(), [number()], keyword()}
 
+  @doc """
+  Creates a new collection and returns a `%Mneme.Collection{}` descriptor.
+
+  ## Options
+
+  - `:dimension` (required) - positive integer vector dimension.
+  - `:metric` (optional) - currently only `:cosine`.
+
+  ## Examples
+
+      iex> Mneme.Collection.new("docs")
+      {:error, %Mneme.Error{code: :invalid_argument, message: "dimension must be a positive integer"}}
+
+      iex> Mneme.Collection.new("docs", dimension: 0)
+      {:error, %Mneme.Error{code: :invalid_argument, message: "dimension must be a positive integer"}}
+  """
   @spec new(String.t(), keyword()) :: {:ok, t()} | {:error, Error.t()}
   def new(name, opts \\ []) when is_binary(name) do
     dimension = Keyword.get(opts, :dimension)
@@ -29,6 +73,17 @@ defmodule Mneme.Collection do
     end
   end
 
+  @doc """
+  Loads a collection from a persisted `.mneme` file.
+
+  The resulting descriptor can be used with normal collection operations such
+  as `count/1`, `search/3`, and `insert/4`.
+
+  ## Examples
+
+      iex> Mneme.Collection.load("docs.mneme")
+      {:error, %Mneme.Error{code: :native_unavailable, message: "NIF is not loaded"}}
+  """
   @spec load(String.t(), keyword()) :: {:ok, t()} | {:error, Error.t()}
   def load(path, _opts \\ []) when is_binary(path) do
     with {:ok, ref} <- Native.collection_load(path) do
@@ -36,13 +91,55 @@ defmodule Mneme.Collection do
     end
   end
 
+  @doc """
+  Persists a collection to a `.mneme` file.
+
+  The resulting file can later be loaded with `load/2`.
+
+  ## Examples
+
+      iex> collection = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.save(collection, "docs.mneme")
+      {:error, %Mneme.Error{code: :native_unavailable, message: "NIF is not loaded"}}
+  """
   @spec save(t(), String.t()) :: :ok | {:error, Error.t()}
   def save(%__MODULE__{ref: ref}, path) when is_binary(path),
     do: Native.collection_save(ref, path)
 
+  @doc """
+  Explicitly closes/frees the native collection resource.
+
+  Closing is optional in short-lived scripts, but recommended for long-running
+  processes that create many collections over time.
+
+  ## Examples
+
+      iex> collection = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.close(collection)
+      :ok
+  """
   @spec close(t()) :: :ok | {:error, Error.t()}
   def close(%__MODULE__{ref: ref}), do: Native.collection_free(ref)
 
+  @doc """
+  Inserts a single vector row by id.
+
+  Input validation includes:
+
+  - id is a binary
+  - vector length matches collection dimension
+  - vector values are numeric
+
+  ## Options
+
+  - `:metadata` - optional binary metadata payload.
+
+  ## Examples
+
+      iex> c = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.insert(c, "doc_1", [1.0])
+      {:error, %Mneme.Error{code: :dimension_mismatch, message: "vector length does not match collection dimension"}}
+  """
   @spec insert(t(), String.t(), [number()], keyword()) :: :ok | {:error, Error.t()}
   def insert(%__MODULE__{} = collection, id, vector, opts \\ [])
       when is_binary(id) and is_list(vector) do
@@ -53,6 +150,18 @@ defmodule Mneme.Collection do
     end
   end
 
+  @doc """
+  Inserts multiple rows.
+
+  Entries are `{id, vector, opts}` tuples. Each entry is validated with the
+  same vector checks used by `insert/4`.
+
+  ## Examples
+
+      iex> c = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.insert_many(c, [{"doc_1", [1.0, 0.0, 0.0], []}])
+      {:error, %Mneme.Error{code: :native_unavailable, message: "NIF is not loaded"}}
+  """
   @spec insert_many(t(), [entry()], keyword()) :: {:ok, non_neg_integer()} | {:error, Error.t()}
   def insert_many(%__MODULE__{} = collection, entries, _opts \\ []) when is_list(entries) do
     with :ok <- validate_entries(entries, collection.dimension) do
@@ -65,16 +174,62 @@ defmodule Mneme.Collection do
     end
   end
 
+  @doc """
+  Deletes a row by id.
+
+  ## Examples
+
+      iex> c = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.delete(c, "doc_1")
+      {:error, %Mneme.Error{code: :native_unavailable, message: "NIF is not loaded"}}
+  """
   @spec delete(t(), String.t()) :: :ok | {:error, Error.t()}
   def delete(%__MODULE__{ref: ref}, id) when is_binary(id), do: Native.collection_delete(ref, id)
 
+  @doc """
+  Deletes multiple rows by id.
+
+  Returns the number of rows deleted when supported by the native layer.
+
+  ## Examples
+
+      iex> c = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.delete_many(c, ["doc_1", "doc_2"])
+      {:error, %Mneme.Error{code: :native_unavailable, message: "NIF is not loaded"}}
+  """
   @spec delete_many(t(), [String.t()]) :: {:ok, non_neg_integer()} | {:error, Error.t()}
   def delete_many(%__MODULE__{ref: ref}, ids) when is_list(ids),
     do: Native.collection_delete_batch(ref, ids)
 
+  @doc """
+  Returns the number of rows in the collection.
+
+  ## Examples
+
+      iex> c = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.count(c)
+      {:error, %Mneme.Error{code: :native_unavailable, message: "NIF is not loaded"}}
+  """
   @spec count(t()) :: {:ok, non_neg_integer()} | {:error, Error.t()}
   def count(%__MODULE__{ref: ref}), do: Native.collection_count(ref)
 
+  @doc """
+  Searches the collection by vector similarity.
+
+  ## Options
+
+  - `:limit` - positive integer result count (default `10`).
+  - `:index` - `:flat` or `:hnsw` (default `:flat`).
+  - `:ef_search` - optional HNSW search parameter.
+
+  Returns `{:ok, [%Mneme.Result{}, ...]}` on success.
+
+  ## Examples
+
+      iex> c = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.search(c, [1.0, 0.0, 0.0], index: :foo)
+      {:error, %Mneme.Error{code: :invalid_argument, message: "index must be :flat or :hnsw"}}
+  """
   @spec search(t(), [number()], keyword()) :: {:ok, [Result.t()]} | {:error, Error.t()}
   def search(%__MODULE__{} = collection, query, opts \\ []) when is_list(query) do
     limit = Keyword.get(opts, :limit, 10)
@@ -91,6 +246,25 @@ defmodule Mneme.Collection do
     end
   end
 
+  @doc """
+  Builds an HNSW index for the collection.
+
+  This call configures index build parameters and delegates work to the native
+  engine. The index can then be queried with `search/3` using `index: :hnsw`.
+
+  ## Options
+
+  - `:m` (default `16`)
+  - `:ef_construction` (default `64`)
+  - `:ef_search` (default `32`)
+  - `:seed` (default `42`)
+
+  ## Examples
+
+      iex> c = %Mneme.Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+      iex> Mneme.Collection.build_hnsw(c, m: 0)
+      {:error, %Mneme.Error{code: :invalid_argument, message: "m must be a positive integer"}}
+  """
   @spec build_hnsw(t(), keyword()) :: :ok | {:error, Error.t()}
   def build_hnsw(%__MODULE__{ref: ref}, opts \\ []) do
     config = %{

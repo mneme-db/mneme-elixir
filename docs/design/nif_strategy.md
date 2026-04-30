@@ -21,3 +21,12 @@ Choose **Option B** as the default implementation path to keep usage simple for 
 - clearer Hex package story when combined with precompiled NIFs
 
 Fallback remains **Option A** if direct core embedding proves too brittle in specific build environments.
+
+## Practical caveat discovered during implementation
+
+Zigler enforces module-path import boundaries. Directly importing Zig source from a sibling repository path is rejected (import outside module path).
+
+Implication for Option B:
+
+- `mneme` core Zig sources must be vendored, mirrored, or included via a local module/submodule path inside this repository.
+- The implementation roadmap now includes formal source-sync mechanics so embedded core code stays aligned with upstream `mneme`.
