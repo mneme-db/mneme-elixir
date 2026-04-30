@@ -3,9 +3,15 @@ defmodule Mneme.Native do
 
   version = Mix.Project.config()[:version]
 
+  precompiled_base_url =
+    System.get_env(
+      "MNEME_NIF_BASE_URL",
+      "https://github.com/mneme-db/mneme-elixir/releases/download/v#{version}"
+    )
+
   use ZiglerPrecompiled,
     otp_app: :mneme,
-    base_url: "https://github.com/mneme-db/mneme-elixir/releases/download/v#{version}",
+    base_url: precompiled_base_url,
     version: version,
     force_build: Mix.env() != :prod or System.get_env("MNEME_BUILD") in ["1", "true"],
     zig_code_path: Path.expand("../../native/mneme_nif.zig", __DIR__),

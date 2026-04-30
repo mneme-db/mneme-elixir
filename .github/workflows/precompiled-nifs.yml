@@ -35,6 +35,7 @@ jobs:
       OTP_VERSION: "27.2"
       ZIG_VERSION: "0.15.2"
       MNEME_BUILD: "1"
+      MNEME_NIF_BASE_URL: https://github.com/${{ github.repository }}/releases/download/v${{ github.ref_name }}
 
     steps:
       - name: Checkout
@@ -136,6 +137,7 @@ jobs:
       ELIXIR_VERSION: "1.18.3"
       OTP_VERSION: "27.2"
       MNEME_BUILD: "1"
+      MNEME_NIF_BASE_URL: https://github.com/${{ github.repository }}/releases/download/v${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
