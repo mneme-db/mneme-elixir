@@ -1,9 +1,15 @@
 defmodule Mneme.Native do
   @moduledoc false
 
-  use Zig,
+  version = Mix.Project.config()[:version]
+
+  use ZiglerPrecompiled,
     otp_app: :mneme,
-    zig_code_path: Path.expand("../../native/mneme_nif.zig", __DIR__)
+    base_url: "https://github.com/mneme-db/mneme-elixir/releases/download/v#{version}",
+    version: version,
+    force_build: Mix.env() != :prod or System.get_env("MNEME_BUILD") in ["1", "true"],
+    zig_code_path: Path.expand("../../native/mneme_nif.zig", __DIR__),
+    nifs: [native_abi_version: 0]
 
   alias Mneme.Error
 
