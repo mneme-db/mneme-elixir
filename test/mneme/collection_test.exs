@@ -7,6 +7,10 @@ defmodule Mneme.CollectionTest do
     assert {:error, %Mneme.Error{code: :invalid_argument}} = Collection.new("docs", dimension: 0)
   end
 
+  test "new/1 returns validation error instead of arity crash" do
+    assert {:error, %Mneme.Error{code: :invalid_argument}} = Collection.new("docs")
+  end
+
   test "insert validates vector dimension before native call" do
     collection = %Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
 

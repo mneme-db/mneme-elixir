@@ -18,7 +18,7 @@ defmodule Mneme.Collection do
   @type entry :: {String.t(), [number()], keyword()}
 
   @spec new(String.t(), keyword()) :: {:ok, t()} | {:error, Error.t()}
-  def new(name, opts) when is_binary(name) do
+  def new(name, opts \\ []) when is_binary(name) do
     dimension = Keyword.get(opts, :dimension)
     metric = Keyword.get(opts, :metric, :cosine)
 

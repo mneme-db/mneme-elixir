@@ -15,15 +15,30 @@ defmodule Mneme.Native do
   @type collection_ref :: reference()
 
   @spec available?() :: boolean()
-  def available?, do: true
+  def available? do
+    case abi_version() do
+      {:ok, _version} -> true
+      {:error, _error} -> false
+    end
+  end
 
   @spec abi_version() :: {:ok, non_neg_integer()} | {:error, Error.t()}
-  def abi_version, do: {:ok, native_abi_version()}
+  def abi_version do
+    {:ok, native_abi_version()}
+  rescue
+    UndefinedFunctionError ->
+      {:error, Error.new(:native_unavailable, "NIF is not loaded")}
+  end
 
   @spec collection_new(String.t(), pos_integer(), :cosine) ::
           {:ok, collection_ref()} | {:error, Error.t()}
-  def collection_new(_name, _dimension, _metric),
-    do: {:error, Error.new(:native_unavailable, "NIF is not loaded")}
+  def collection_new(_name, _dimension, _metric) do
+    if stub_success?() do
+      {:ok, make_ref()}
+    else
+      {:error, Error.new(:native_unavailable, "NIF is not loaded")}
+    end
+  end
 
   @spec collection_free(collection_ref()) :: :ok | {:error, Error.t()}
   def collection_free(_ref), do: :ok
@@ -69,5 +84,15 @@ defmodule Mneme.Native do
     do: {:error, Error.new(:native_unavailable, "NIF is not loaded")}
 
   @spec collection_load(String.t()) :: {:ok, collection_ref()} | {:error, Error.t()}
-  def collection_load(_path), do: {:error, Error.new(:native_unavailable, "NIF is not loaded")}
+  def collection_load(_path) do
+    if stub_success?() do
+      {:ok, make_ref()}
+    else
+      {:error, Error.new(:native_unavailable, "NIF is not loaded")}
+    end
+  end
+
+  defp stub_success? do
+    System.get_env("MNEME_NATIVE_STUB_SUCCESS") == "1"
+  end
 end
