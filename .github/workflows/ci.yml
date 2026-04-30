@@ -6,16 +6,41 @@ on:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-14]
+        otp: ["27.2"]
+        elixir: ["1.18.3"]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: erlef/setup-beam@v1
         with:
-          otp-version: "27.0"
-          elixir-version: "1.18.4"
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+      - name: Cache deps and build
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build
+          key: ${{ runner.os }}-mix-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-mix-
+      - name: Cache zigler artifacts
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/zigler
+            ~/Library/Caches/zigler
+          key: ${{ runner.os }}-zigler-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-zigler-
       - run: mix deps.get
-      - run: mix format --check-formatted
-      - run: mix credo --strict
-      - run: mix compile --warnings-as-errors
-      - run: mix test
-      - run: mix docs
+      - run: mix test.ci
+      - name: Upload coverage to Coveralls
+        if: matrix.os == 'ubuntu-latest'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: mix coveralls.github
+      - run: mix docs --warnings-as-errors

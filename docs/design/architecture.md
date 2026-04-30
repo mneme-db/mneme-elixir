@@ -3,7 +3,7 @@
 `mneme-elixir` is split into:
 
 - `Mneme.Collection`: user-facing API with argument validation
-- `Mneme.Native`: internal NIF boundary
+- internal native boundary module for NIF calls
 - `Mneme.Error` and `Mneme.Result`: stable public data contracts
 - `Mneme.Pool`: optional concurrency wrapper, not mandatory for core usage
 
@@ -12,7 +12,7 @@ The architecture keeps native concerns isolated and keeps Elixir API semantics e
 ## Boundary policy
 
 - Applications should call `Mneme` and `Mneme.Collection` only.
-- `Mneme.Native` is considered internal and may change without compatibility guarantees.
+- The native boundary module is considered internal and may change without compatibility guarantees.
 - Mapping from native statuses to `%Mneme.Error{}` happens at the boundary to prevent C/Zig leakage into user-facing API shapes.
 
 ## Runtime notes
