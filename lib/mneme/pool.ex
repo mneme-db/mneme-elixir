@@ -1,10 +1,13 @@
 defmodule Mneme.Pool do
   @moduledoc """
-  Optional process wrapper for controlled query execution.
+  Optional serialized search wrapper.
 
   In v0.1 this module is intentionally small and non-mandatory. It provides a
   stable shape for future pooling work while already giving callers a named
   process boundary for search operations.
+
+  Note: this module currently serializes requests through a single `GenServer`.
+  It does not provide true parallel pooling semantics yet.
 
   ## Examples
 
@@ -21,7 +24,7 @@ defmodule Mneme.Pool do
   @type t :: pid()
 
   @doc """
-  Starts the optional pool process.
+  Starts the serialized search process.
 
   Required options:
 
@@ -39,7 +42,10 @@ defmodule Mneme.Pool do
       true
   """
   @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts), do: GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
+  def start_link(opts) do
+    {gen_opts, init_opts} = Keyword.split(opts, [:name])
+    GenServer.start_link(__MODULE__, init_opts, gen_opts)
+  end
 
   @doc """
   Executes a search through the pool process.
@@ -59,7 +65,13 @@ defmodule Mneme.Pool do
 
   @impl true
   def init(opts) do
-    {:ok, %{collection: Keyword.fetch!(opts, :collection)}}
+    case Keyword.fetch(opts, :collection) do
+      {:ok, collection} ->
+        {:ok, %{collection: collection}}
+
+      :error ->
+        {:stop, {:missing_option, :collection}}
+    end
   end
 
   @impl true

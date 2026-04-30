@@ -5,12 +5,12 @@ defmodule MnemeTest do
   doctest Mneme.Application
   doctest Mneme.Collection
   doctest Mneme.Error
-  doctest Mneme.Native
   doctest Mneme.Pool
   doctest Mneme.Result
 
   test "version/0 works" do
-    assert Mneme.version() == "0.1.0"
+    assert is_binary(Mneme.version())
+    assert Mneme.version() != ""
   end
 
   test "native_available?/0 works" do

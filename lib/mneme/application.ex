@@ -6,6 +6,7 @@ defmodule Mneme.Application do
   supervision structure for future native runtime services and background jobs.
   """
   use Application
+  require Logger
 
   @doc """
   Starts the `mneme` supervision tree.
@@ -22,7 +23,19 @@ defmodule Mneme.Application do
   """
   @impl true
   def start(_type, _args) do
+    log_native_health()
+
     children = []
     Supervisor.start_link(children, strategy: :one_for_one, name: Mneme.Supervisor)
+  end
+
+  defp log_native_health do
+    case Mneme.abi_version() do
+      {:ok, abi} ->
+        Logger.info("mneme native ABI available (abi_version=#{abi})")
+
+      {:error, %Mneme.Error{code: code, message: message}} ->
+        Logger.warning("mneme native ABI unavailable (code=#{code}): #{message}")
+    end
   end
 end

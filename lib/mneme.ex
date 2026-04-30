@@ -32,7 +32,7 @@ defmodule Mneme do
   @doc """
   Returns the Elixir package version published by this library.
 
-  This value tracks `Mix.Project.config()[:version]` and reflects the Hex
+  This value tracks the application spec version and reflects the Hex
   package release, not the native ABI version.
 
   ## Examples
@@ -41,7 +41,12 @@ defmodule Mneme do
       "0.1.0"
   """
   @spec version() :: String.t()
-  def version, do: "0.1.0"
+  def version do
+    case Application.spec(:mneme, :vsn) do
+      nil -> "0.0.0"
+      vsn -> List.to_string(vsn)
+    end
+  end
 
   @doc """
   Returns the native ABI version used by the loaded NIF.
