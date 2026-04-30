@@ -59,6 +59,11 @@ jobs:
       - name: Install dependencies
         run: mix deps.get
 
+      - name: Extract project version
+        shell: bash
+        run: |
+          echo "PROJECT_VERSION=$(sed -n 's/^[[:space:]]*version: \"\\(.*\\)\".*/\\1/p' mix.exs | head -n1)" >> "$GITHUB_ENV"
+
       - name: Download Zig
         run: mix zig.get
 
@@ -70,7 +75,7 @@ jobs:
       - name: Package artifact
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${PROJECT_VERSION}"
           BASENAME="Elixir.Mneme.Native"
           NIF_DIR="_build/dev/lib/mneme/priv/lib"
           NIF_FILE="${NIF_DIR}/${BASENAME}.so"
@@ -92,7 +97,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: mneme-native-v${{ github.ref_name }}-${{ matrix.target }}
+          name: mneme-native-v${{ env.PROJECT_VERSION }}-${{ matrix.target }}
           path: "*.tar.gz"
 
   release:
