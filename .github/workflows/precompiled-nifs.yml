@@ -76,7 +76,20 @@ jobs:
       - name: Package artifact
         shell: bash
         run: |
-          VERSION="${PROJECT_VERSION}"
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${PROJECT_VERSION}"
+          fi
+
+          if [ -z "${VERSION}" ]; then
+            echo "::error::Could not determine project version for artifact naming"
+            echo "GITHUB_REF=${GITHUB_REF}"
+            echo "GITHUB_REF_NAME=${GITHUB_REF_NAME}"
+            echo "PROJECT_VERSION=${PROJECT_VERSION}"
+            exit 1
+          fi
+
           BASENAME="Elixir.Mneme.Native"
           NIF_DIR="_build/dev/lib/mneme/priv/lib"
           NIF_FILE="${NIF_DIR}/${BASENAME}.so"
@@ -87,7 +100,9 @@ jobs:
             exit 1
           fi
 
-          tar czf "${BASENAME}-v${VERSION}-${{ matrix.target }}.so.tar.gz" -C "$NIF_DIR" .
+          ARTIFACT="${BASENAME}-v${VERSION}-${{ matrix.target }}.so.tar.gz"
+          tar czf "${ARTIFACT}" -C "$NIF_DIR" .
+          echo "Packaged ${ARTIFACT}"
 
       - name: Artifact attestation
         if: startsWith(github.ref, 'refs/tags/')
