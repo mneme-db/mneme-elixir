@@ -86,8 +86,8 @@ defmodule Mneme.Collection do
   """
   @spec load(String.t(), keyword()) :: {:ok, t()} | {:error, Error.t()}
   def load(path, _opts \\ []) when is_binary(path) do
-    with {:ok, ref} <- Native.collection_load(path) do
-      {:ok, %__MODULE__{ref: ref, name: Path.basename(path), dimension: 0, metric: :cosine}}
+    with {:ok, ref, name, dimension, metric} <- Native.collection_load(path) do
+      {:ok, %__MODULE__{ref: ref, name: name, dimension: dimension, metric: metric}}
     end
   end
 
@@ -145,8 +145,10 @@ defmodule Mneme.Collection do
       when is_binary(id) and is_list(vector) do
     metadata = Keyword.get(opts, :metadata)
 
-    with :ok <- validate_vector(vector, collection.dimension) do
-      Native.collection_insert(collection.ref, id, vector, metadata)
+    with :ok <- validate_non_empty_id(id),
+         :ok <- validate_metadata(metadata),
+         :ok <- validate_vector(vector, collection.dimension) do
+      Native.collection_insert(collection.ref, id, normalize_vector(vector), metadata)
     end
   end
 
@@ -167,7 +169,7 @@ defmodule Mneme.Collection do
     with :ok <- validate_entries(entries, collection.dimension) do
       normalized =
         Enum.map(entries, fn {id, vector, opts} ->
-          {id, vector, Keyword.get(opts, :metadata)}
+          {id, normalize_vector(vector), Keyword.get(opts, :metadata)}
         end)
 
       Native.collection_insert_batch(collection.ref, normalized)
@@ -198,8 +200,11 @@ defmodule Mneme.Collection do
       {:error, %Mneme.Error{code: :native_unavailable, message: "NIF is not loaded"}}
   """
   @spec delete_many(t(), [String.t()]) :: {:ok, non_neg_integer()} | {:error, Error.t()}
-  def delete_many(%__MODULE__{ref: ref}, ids) when is_list(ids),
-    do: Native.collection_delete_batch(ref, ids)
+  def delete_many(%__MODULE__{ref: ref}, ids) when is_list(ids) do
+    with :ok <- validate_ids(ids) do
+      Native.collection_delete_batch(ref, ids)
+    end
+  end
 
   @doc """
   Returns the number of rows in the collection.
@@ -237,10 +242,13 @@ defmodule Mneme.Collection do
     ef_search = Keyword.get(opts, :ef_search)
 
     with :ok <- validate_positive_integer(limit, :limit),
+         :ok <- validate_optional_positive_integer(ef_search, :ef_search),
          :ok <- validate_vector(query, collection.dimension) do
+      normalized_query = normalize_vector(query)
+
       case index do
-        :flat -> Native.collection_search_flat(collection.ref, query, limit)
-        :hnsw -> Native.collection_search_hnsw(collection.ref, query, limit, ef_search)
+        :flat -> Native.collection_search_flat(collection.ref, normalized_query, limit)
+        :hnsw -> Native.collection_search_hnsw(collection.ref, normalized_query, limit, ef_search)
         _ -> {:error, Error.new(:invalid_argument, "index must be :flat or :hnsw")}
       end
     end
@@ -276,7 +284,8 @@ defmodule Mneme.Collection do
 
     with :ok <- validate_positive_integer(config.m, :m),
          :ok <- validate_positive_integer(config.ef_construction, :ef_construction),
-         :ok <- validate_positive_integer(config.ef_search, :ef_search) do
+         :ok <- validate_positive_integer(config.ef_search, :ef_search),
+         :ok <- validate_non_negative_integer(config.seed, :seed) do
       Native.collection_build_hnsw(ref, config)
     end
   end
@@ -284,9 +293,14 @@ defmodule Mneme.Collection do
   defp validate_entries(entries, dimension) do
     Enum.reduce_while(entries, :ok, fn
       {id, vector, opts}, :ok when is_binary(id) and is_list(vector) and is_list(opts) ->
-        case validate_vector(vector, dimension) do
-          :ok -> {:cont, :ok}
-          error -> {:halt, error}
+        metadata = Keyword.get(opts, :metadata)
+
+        case validate_entry(id, vector, metadata, dimension) do
+          :ok ->
+            {:cont, :ok}
+
+          error ->
+            {:halt, error}
         end
 
       _other, :ok ->
@@ -302,6 +316,32 @@ defmodule Mneme.Collection do
 
   defp validate_dimension(value), do: validate_positive_integer(value, :dimension)
 
+  defp validate_entry(id, vector, metadata, dimension) do
+    with :ok <- validate_non_empty_id(id),
+         :ok <- validate_metadata(metadata) do
+          validate_vector(vector, dimension)
+    end
+  end
+
+  defp validate_ids(ids) do
+    if Enum.all?(ids, &is_binary/1) do
+      :ok
+    else
+      {:error, Error.new(:invalid_argument, "ids must be a list of binaries")}
+    end
+  end
+
+  defp validate_non_empty_id(""),
+    do: {:error, Error.new(:invalid_argument, "id must be a non-empty binary")}
+
+  defp validate_non_empty_id(id) when is_binary(id), do: :ok
+
+  defp validate_metadata(nil), do: :ok
+  defp validate_metadata(metadata) when is_binary(metadata), do: :ok
+
+  defp validate_metadata(_metadata),
+    do: {:error, Error.new(:invalid_argument, "metadata must be a binary when provided")}
+
   defp validate_vector(values, dimension) when is_integer(dimension) and dimension > 0 do
     cond do
       length(values) != dimension ->
@@ -316,9 +356,26 @@ defmodule Mneme.Collection do
     end
   end
 
+  defp validate_vector(_values, _dimension) do
+    {:error, Error.new(:internal, "collection has invalid dimension")}
+  end
+
+  defp normalize_vector(values), do: Enum.map(values, &(&1 * 1.0))
+
   defp validate_positive_integer(value, _field) when is_integer(value) and value > 0, do: :ok
 
   defp validate_positive_integer(_value, field) do
     {:error, Error.new(:invalid_argument, "#{field} must be a positive integer")}
+  end
+
+  defp validate_optional_positive_integer(nil, _field), do: :ok
+
+  defp validate_optional_positive_integer(value, field),
+    do: validate_positive_integer(value, field)
+
+  defp validate_non_negative_integer(value, _field) when is_integer(value) and value >= 0, do: :ok
+
+  defp validate_non_negative_integer(_value, field) do
+    {:error, Error.new(:invalid_argument, "#{field} must be a non-negative integer")}
   end
 end

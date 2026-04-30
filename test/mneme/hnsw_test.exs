@@ -9,4 +9,11 @@ defmodule Mneme.HnswTest do
     assert {:error, %Mneme.Error{code: :invalid_argument}} =
              Collection.build_hnsw(collection, m: 0)
   end
+
+  test "build_hnsw validates non-negative seed" do
+    collection = %Collection{ref: make_ref(), name: "docs", dimension: 3, metric: :cosine}
+
+    assert {:error, %Mneme.Error{code: :invalid_argument}} =
+             Collection.build_hnsw(collection, seed: -1)
+  end
 end
