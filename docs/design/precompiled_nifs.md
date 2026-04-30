@@ -1,35 +1,43 @@
 # Precompiled NIFs
 
-`zigler_precompiled` is configured as a dependency so the library can ship prebuilt native artifacts once the NIF implementation is stable.
+`zigler_precompiled` is configured and wired in the internal native boundary module so releases can
+ship prebuilt native artifacts.
 
 ## Intended module wiring
 
-Native modules are declared using Zigler in Elixir modules, for example:
+Native modules are declared with `ZiglerPrecompiled` in Elixir modules:
 
 ```elixir
-use Zig,
+version = Mix.Project.config()[:version]
+
+use ZiglerPrecompiled,
   otp_app: :mneme,
-  zig_code_path: Path.expand("../../native/mneme_nif.zig", __DIR__)
+  base_url: "https://github.com/mneme-db/mneme-elixir/releases/download/v#{version}",
+  version: version,
+  force_build: System.get_env("MNEME_BUILD") in ["1", "true"],
+  zig_code_path: Path.expand("../../native/mneme_nif.zig", __DIR__),
+  nifs: [native_abi_version: 0]
 ```
 
 Precompiled artifacts are intended to be downloaded and validated first, with local compilation as fallback.
 
-## Planned release process
+## Release process (implemented)
 
-1. Build NIF artifacts in CI for supported targets.
-2. Publish checksums with each release.
-3. Prefer downloading verified artifacts.
-4. Fall back to local Zig compilation when no matching artifact exists.
+1. Tag release (`vX.Y.Z`) triggers `.github/workflows/precompiled-nifs.yml`.
+2. CI builds NIF tarballs for each target.
+3. CI publishes tarballs + `checksums.txt` to the GitHub release.
+4. Hex publish job runs `mix zigler_precompiled.download Mneme.Native --all --print`.
+5. Runtime prefers downloaded precompiled artifacts; local Zig build is fallback.
 
-Initial target set:
+Current target set:
 
 - macOS arm64
 - macOS x86_64
 - Linux x86_64
+- Linux aarch64
 
 Later targets:
 
-- Linux aarch64
 - Windows
 
 ## Fallback behavior

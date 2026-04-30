@@ -50,9 +50,16 @@ The snippets above show the intended public API shape. Full end-to-end behavior 
 ## NIF and Precompiled NIF Notes
 
 - Runtime NIFs are built with Zigler.
-- Precompiled NIF distribution is planned through `zigler_precompiled`.
+- Runtime precompiled NIFs are resolved through `zigler_precompiled`.
 - Design details and release workflow are documented in `docs/design/precompiled_nifs.md`.
 - Current strategy preference is Option B (embed core into the NIF) with Option A fallback.
+
+## Release Process (v0.1.0)
+
+- CI (`.github/workflows/ci.yml`) runs format, credo, compile warnings-as-errors, tests, coverage, and docs warnings-as-errors.
+- Tagged releases (`v*`) trigger `.github/workflows/precompiled-nifs.yml`.
+- The precompiled workflow builds target NIF artifacts, publishes release assets/checksums, and then publishes Hex.
+- The internal native boundary module uses release-hosted artifacts first, with local Zig compilation fallback when needed.
 
 ## Design docs
 

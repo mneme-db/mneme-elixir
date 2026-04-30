@@ -6,10 +6,19 @@ defmodule Mneme.MixProject do
       app: :mneme,
       version: "0.1.0",
       elixir: "~> 1.18",
+      preferred_cli_env: [
+        {:"test.ci", :test},
+        {:coveralls, :test},
+        {:"coveralls.detail", :test},
+        {:"coveralls.post", :test},
+        {:"coveralls.github", :test}
+      ],
+      test_coverage: [tool: ExCoveralls],
       start_permanent: Mix.env() == :prod,
       description: "Idiomatic Elixir client for the mneme embedded vector database core",
       package: package(),
       docs: docs(),
+      aliases: aliases(),
       source_url: "https://github.com/mneme-db/mneme-elixir",
       homepage_url: "https://github.com/mneme-db/mneme-elixir",
       deps: deps()
@@ -29,7 +38,8 @@ defmodule Mneme.MixProject do
       {:zigler_precompiled, "~> 0.1"},
       {:nimble_pool, "~> 1.1"},
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
-      {:credo, "~> 1.7", only: [:dev, :test], runtime: false}
+      {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
+      {:excoveralls, "~> 0.18", only: :test}
     ]
   end
 
@@ -47,6 +57,18 @@ defmodule Mneme.MixProject do
     ]
   end
 
+  defp aliases do
+    [
+      setup: ["deps.get"],
+      "test.ci": [
+        "format --check-formatted",
+        "credo --strict",
+        "compile --warnings-as-errors",
+        "test"
+      ]
+    ]
+  end
+
   defp package do
     [
       name: "mneme",
@@ -59,6 +81,7 @@ defmodule Mneme.MixProject do
         "CHANGELOG.md",
         "VERSIONING.md"
       ],
+      maintainers: ["Thanos Vassilakis"],
       licenses: ["MIT"],
       links: %{
         "GitHub" => "https://github.com/mneme-db/mneme-elixir",
