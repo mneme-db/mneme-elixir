@@ -37,6 +37,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-zigler-
       - run: mix deps.get
+      - name: Download Zig (for Zigler)
+        run: mix zig.get
       - run: mix test.ci
       - name: Upload coverage to Coveralls
         if: matrix.os == 'ubuntu-latest'
