@@ -319,7 +319,7 @@ defmodule Mneme.Collection do
   defp validate_entry(id, vector, metadata, dimension) do
     with :ok <- validate_non_empty_id(id),
          :ok <- validate_metadata(metadata) do
-          validate_vector(vector, dimension)
+      validate_vector(vector, dimension)
     end
   end
 
