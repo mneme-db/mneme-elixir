@@ -81,7 +81,6 @@ defmodule Mneme.MixProject do
         "CHANGELOG.md",
         "VERSIONING.md"
       ],
-      ,
       maintainers: ["Thanos Vassilakis"],
       licenses: ["MIT"],
       links: %{
