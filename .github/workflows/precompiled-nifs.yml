@@ -25,12 +25,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { target: aarch64-macos-none, os: macos-14 }
-          - { target: x86_64-macos-none, os: macos-14 }
-          - { target: aarch64-linux-gnu, os: ubuntu-22.04 }
-          - { target: aarch64-linux-musl, os: ubuntu-22.04 }
-          - { target: x86_64-linux-gnu, os: ubuntu-22.04 }
-          - { target: x86_64-linux-musl, os: ubuntu-22.04 }
+          - { target: aarch64-macos-none, os: macos-14, zig_arch: aarch64-macos }
+          - { target: x86_64-macos-none, os: macos-14, zig_arch: aarch64-macos }
+          - { target: aarch64-linux-gnu, os: ubuntu-22.04, zig_arch: x86_64-linux }
+          - { target: x86_64-linux-gnu, os: ubuntu-22.04, zig_arch: x86_64-linux }
 
     env:
       ELIXIR_VERSION: "1.18.3"
@@ -40,14 +38,17 @@ jobs:
       MNEME_NIF_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - uses: erlef/setup-beam@v1
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - uses: actions/cache@v4
+      - name: Cache dependencies
+        uses: actions/cache@v4
         with:
           path: |
             deps
@@ -56,114 +57,94 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-nif-${{ matrix.target }}-
 
-      - run: mix deps.get
+      - name: Install dependencies
+        run: mix deps.get
 
-      - name: Project version
+      - name: Extract project version
         shell: bash
         run: |
           echo "PROJECT_VERSION=$(sed -n 's/^[[:space:]]*version: \"\\(.*\\)\".*/\\1/p' mix.exs | head -n1)" >> "$GITHUB_ENV"
 
-      - run: mix zig.get
+      - name: Download Zig
+        run: mix zig.get
 
-      - name: Cross-compile target
-        shell: bash
-        run: |
-          case "${{ matrix.target }}" in
-            aarch64-linux-gnu)
-              echo "TARGET_ARCH=aarch64" >> "$GITHUB_ENV"
-              echo "TARGET_OS=linux" >> "$GITHUB_ENV"
-              echo "TARGET_ABI=gnu" >> "$GITHUB_ENV"
-              ;;
-            aarch64-linux-musl)
-              echo "TARGET_ARCH=aarch64" >> "$GITHUB_ENV"
-              echo "TARGET_OS=linux" >> "$GITHUB_ENV"
-              echo "TARGET_ABI=musl" >> "$GITHUB_ENV"
-              ;;
-            x86_64-linux-gnu)
-              echo "TARGET_ARCH=x86_64" >> "$GITHUB_ENV"
-              echo "TARGET_OS=linux" >> "$GITHUB_ENV"
-              echo "TARGET_ABI=gnu" >> "$GITHUB_ENV"
-              ;;
-            x86_64-linux-musl)
-              echo "TARGET_ARCH=x86_64" >> "$GITHUB_ENV"
-              echo "TARGET_OS=linux" >> "$GITHUB_ENV"
-              echo "TARGET_ABI=musl" >> "$GITHUB_ENV"
-              ;;
-            aarch64-macos-none)
-              echo "TARGET_ARCH=aarch64" >> "$GITHUB_ENV"
-              echo "TARGET_OS=darwin" >> "$GITHUB_ENV"
-              echo "TARGET_ABI=none" >> "$GITHUB_ENV"
-              ;;
-            x86_64-macos-none)
-              echo "TARGET_ARCH=x86_64" >> "$GITHUB_ENV"
-              echo "TARGET_OS=darwin" >> "$GITHUB_ENV"
-              echo "TARGET_ABI=none" >> "$GITHUB_ENV"
-              ;;
-            *)
-              echo "::error::Unknown target ${{ matrix.target }}"
-              exit 1
-              ;;
-          esac
-
-      - run: mix compile --warnings-as-errors
+      - name: Compile NIF from source
         env:
           MIX_ENV: dev
+        run: mix compile --warnings-as-errors
 
-      - name: Package
+      - name: Package artifact
         shell: bash
         run: |
-          v="${PROJECT_VERSION}"
-          test -n "$v" || { echo "::error::no PROJECT_VERSION"; exit 1; }
-          if [[ "${GITHUB_REF}" == refs/tags/* && "v${v}" != "${GITHUB_REF_NAME}" ]]; then
-            echo "::error::tag must be v${v} (mix.exs), got ${GITHUB_REF_NAME}"
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION="${GITHUB_REF_NAME#v}"
+          else
+            VERSION="${PROJECT_VERSION}"
+          fi
+
+          if [ -z "${VERSION}" ]; then
+            echo "::error::Could not determine project version for artifact naming"
+            echo "GITHUB_REF=${GITHUB_REF}"
+            echo "GITHUB_REF_NAME=${GITHUB_REF_NAME}"
+            echo "PROJECT_VERSION=${PROJECT_VERSION}"
             exit 1
           fi
-          b="Elixir.Mneme.Native"
-          dir="_build/dev/lib/mneme/priv/lib"
-          test -f "${dir}/${b}.so" || { echo "::error::missing ${dir}/${b}.so"; exit 1; }
-          mkdir -p artifacts
-          out="artifacts/${b}-v${v}-${{ matrix.target }}.so.tar.gz"
-          tar czf "$out" -C "$dir" .
-          ls -la artifacts/
 
-      - name: Attest
+          BASENAME="Elixir.Mneme.Native"
+          NIF_DIR="_build/dev/lib/mneme/priv/lib"
+          NIF_FILE="${NIF_DIR}/${BASENAME}.so"
+
+          if [ ! -f "$NIF_FILE" ]; then
+            echo "::error::NIF file not found: $NIF_FILE"
+            find _build -maxdepth 8 -type f -name "Elixir.Mneme.Native*.so" || true
+            exit 1
+          fi
+
+          ARTIFACT="${BASENAME}-${{ matrix.target }}.so.tar.gz"
+          tar czf "${ARTIFACT}" -C "$NIF_DIR" .
+          echo "Packaged ${ARTIFACT}"
+
+      - name: Artifact attestation
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/attest-build-provenance@v1
         with:
-          subject-path: artifacts/*.tar.gz
+          subject-path: "*.tar.gz"
 
-      - uses: actions/upload-artifact@v4
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          name: Elixir.Mneme.Native-v${{ env.PROJECT_VERSION }}-${{ matrix.target }}
-          path: artifacts/*.tar.gz
+          name: mneme-native-${{ matrix.target }}
+          path: "*.tar.gz"
 
   release:
+    name: Create release
     needs: build_nifs
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - uses: actions/download-artifact@v4
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
         with:
           path: release-artifacts
           merge-multiple: true
 
-      - name: Collect assets
+      - name: Create checksums
         run: |
-          mkdir -p nifs
-          find release-artifacts -name '*.tar.gz' -exec cp {} nifs/ \;
-          (cd nifs && sha256sum *.tar.gz > checksums.txt)
-          ls -la nifs/
+          cd release-artifacts
+          sha256sum *.tar.gz > checksums.txt
 
-      - uses: softprops/action-gh-release@v2
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
         with:
           files: |
-            nifs/*.tar.gz
-            nifs/checksums.txt
+            release-artifacts/*.tar.gz
+            release-artifacts/checksums.txt
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish_hex:
+    name: Publish to Hex.pm
     needs: release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
@@ -175,21 +156,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: erlef/setup-beam@v1
+      - name: Set up Elixir
+        uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - run: mix deps.get
+      - name: Install dependencies
+        run: mix deps.get
 
-      - run: mix zig.get
+      - name: Download Zig
+        run: mix zig.get
 
-      - run: mix compile --warnings-as-errors
-        env:
-          MIX_ENV: dev
+      - name: Compile NIF from source
+        run: mix compile --warnings-as-errors
 
-      - run: mix zigler_precompiled.download Mneme.Native --all --print
+      - name: Generate checksum file from GitHub Release
+        run: mix zigler_precompiled.download Mneme.Native --all --print 2>/dev/null
 
-      - run: mix hex.publish --yes
+      - name: Publish to Hex
+        run: mix hex.publish --yes
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}
