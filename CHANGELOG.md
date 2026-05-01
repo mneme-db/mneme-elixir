@@ -3,9 +3,11 @@
 ## 0.1.0
 
 - Initial Elixir-facing API scaffold for `mneme`.
-- Added public wrapper modules (`Mneme`, `Mneme.Collection`, `Mneme.Error`, `Mneme.Result`, `Mneme.Pool`).
+- Package/app label changed to `mnemedb_client` with public namespace `MnemeDbClient`.
+- Added public wrapper modules (`MnemeDbClient`, `MnemeDbClient.Collection`, `MnemeDbClient.Error`, `MnemeDbClient.Result`, `MnemeDbClient.Pool`).
+- Kept legacy `Mneme.*` modules for transition compatibility.
 - Added native boundary module (`Mneme.Native`) and Zigler bootstrap wiring.
-- Added `Mneme.abi_version/0` path through NIF bootstrap.
+- Added `MnemeDbClient.abi_version/0` path through NIF bootstrap.
 - Chosen NIF strategy direction documented as Option B (embed core into NIF) with Option A fallback.
 - Added design docs, learning docs, examples, and CI baseline.
 - Added Coveralls integration and strict docs warning checks in CI.
