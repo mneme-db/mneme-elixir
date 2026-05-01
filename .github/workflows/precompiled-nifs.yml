@@ -57,8 +57,8 @@ jobs:
 
       - name: Extract version
         run: |
-          v="$(mix run --no-start -e 'IO.write(Mix.Project.config()[:version])')"
-          test -n "$v" || { echo "::error::empty version from mix.exs"; exit 1; }
+          v=$(awk -F'"' '/^[[:space:]]*version:/{print $2; exit}' mix.exs)
+          test -n "$v" || { echo "::error::could not parse version from mix.exs"; exit 1; }
           echo "MIX_VERSION=$v" >> "$GITHUB_ENV"
 
       - name: Compile
