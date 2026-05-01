@@ -21,7 +21,7 @@ defmodule Mneme.Native do
     )
 
   use ZiglerPrecompiled,
-    otp_app: :mneme,
+    otp_app: :mnemedb_client,
     base_url: precompiled_base_url,
     version: version,
     targets: nif_targets,

@@ -24,139 +24,110 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # target = full Zig triple (arch-os-abi). macOS uses abi "none" — that is not a missing version.
+        # target = Zig triple (arch-os-abi). "none" is the normal macOS ABI in Zig.
         include:
-          - { target: aarch64-macos-none, os: macos-14 }
-          - { target: x86_64-macos-none, os: macos-14 }
-          - { target: aarch64-linux-gnu, os: ubuntu-22.04 }
-          - { target: x86_64-linux-gnu, os: ubuntu-22.04 }
+          - { target: aarch64-macos-none,  os: macos-14      }
+          - { target: x86_64-macos-none,   os: macos-14      }
+          - { target: aarch64-linux-gnu,   os: ubuntu-22.04  }
+          - { target: x86_64-linux-gnu,    os: ubuntu-22.04  }
 
     env:
       ELIXIR_VERSION: "1.18.3"
       OTP_VERSION: "27.2"
-      ZIG_VERSION: "0.15.2"
       MNEME_BUILD: "1"
-      # ZiglerPrecompiled: .../download/<tag> + "/" + "Elixir.Mneme.Native-v<MIX_VER>-<triple>.so.tar.gz" (tag must be v<MIX_VER>).
-      MNEME_NIF_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Elixir
-        uses: erlef/setup-beam@v1
+      - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - name: Cache dependencies
-        uses: actions/cache@v4
+      - uses: actions/cache@v4
         with:
-          path: |
-            deps
-            _build
+          path: deps/_build
           key: ${{ runner.os }}-nif-${{ matrix.target }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-nif-${{ matrix.target }}-
+          restore-keys: ${{ runner.os }}-nif-${{ matrix.target }}-
 
-      - name: Install dependencies
-        run: mix deps.get
+      - run: mix deps.get
 
-      - name: Extract project version
-        shell: bash
+      # Zig must be present before any step that compiles native.ex (including mix run).
+      - run: mix zig.get
+
+      - name: Extract version
         run: |
-          v="$(mix run --no-start -e 'IO.write(Mix.Project.config()[:version])')"
-          test -n "$v" || { echo "::error::no PROJECT_VERSION from mix.exs"; exit 1; }
-          echo "PROJECT_VERSION=$v" >> "$GITHUB_ENV"
+          v=$(awk -F'"' '/^[[:space:]]*version:/{print $2; exit}' mix.exs)
+          test -n "$v" || { echo "::error::could not parse version from mix.exs"; exit 1; }
+          echo "MIX_VERSION=$v" >> "$GITHUB_ENV"
 
-      - name: Download Zig
-        run: mix zig.get
-
-      - name: Compile NIF from source
+      - name: Compile
         env:
           MIX_ENV: dev
         run: mix compile --warnings-as-errors
 
-      - name: Package artifact
+      - name: Package
         shell: bash
         run: |
-          v="${PROJECT_VERSION}"
-          test -n "$v" || { echo "::error::no PROJECT_VERSION from mix.exs"; exit 1; }
+          v="${MIX_VERSION}"
           if [[ "${GITHUB_REF}" == refs/tags/* && "v${v}" != "${GITHUB_REF_NAME}" ]]; then
-            echo "::error::tag must be v${v} (mix.exs), got ${GITHUB_REF_NAME}"
+            echo "::error::tag ${GITHUB_REF_NAME} does not match mix.exs version v${v}"
             exit 1
           fi
 
           BASENAME="Elixir.Mneme.Native"
-          NIF_DIR="_build/dev/lib/mneme/priv/lib"
-          NIF_FILE="${NIF_DIR}/${BASENAME}.so"
+          NIF_DIR="_build/dev/lib/mnemedb_client/priv/lib"
 
-          if [ ! -f "$NIF_FILE" ]; then
-            echo "::error::NIF file not found: $NIF_FILE"
-            find _build -maxdepth 8 -type f -name "Elixir.Mneme.Native*.so" || true
+          test -f "${NIF_DIR}/${BASENAME}.so" || {
+            echo "::error::NIF not found at ${NIF_DIR}/${BASENAME}.so"
+            find _build -name "Elixir.Mneme.Native*.so" 2>/dev/null || true
             exit 1
-          fi
+          }
 
+          # ZiglerPrecompiled download URL = base_url "/" "${BASENAME}-v${v}-${triple}.so.tar.gz"
           ARTIFACT="${BASENAME}-v${v}-${{ matrix.target }}.so.tar.gz"
-          tar czf "${ARTIFACT}" -C "$NIF_DIR" .
-          echo "Packaged ${ARTIFACT}"
-          echo "Zigler download URL: ${MNEME_NIF_BASE_URL}/${ARTIFACT}"
+          tar czf "${ARTIFACT}" -C "${NIF_DIR}" .
+          echo "artifact: ${ARTIFACT}"
 
-      - name: Verify tarball matches zigler_precompiled basename
-        env:
-          TRIPLE: ${{ matrix.target }}
-        run: |
-          mix run --no-start -e '
-            v = Mix.Project.config()[:version]
-            triple = System.fetch_env!("TRIPLE")
-            want = ZiglerPrecompiled.lib_name_with_ext(
-              triple,
-              ZiglerPrecompiled.lib_name("Elixir.Mneme.Native", v, triple)
-            )
-            unless File.exists?(want), do: raise("expected #{want} (zigler download basename)")
-          '
-
-      - name: Artifact attestation
+      - name: Attest
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: "*.tar.gz"
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: mneme-native-${{ matrix.target }}
+          name: Elixir.Mneme.Native-${{ matrix.target }}
           path: "*.tar.gz"
+          if-no-files-found: error
 
   release:
-    name: Create release
     needs: build_nifs
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
     steps:
-      - name: Download artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          path: release-artifacts
+          path: dl
           merge-multiple: true
 
-      - name: Create checksums
+      - name: Collect
         run: |
-          cd release-artifacts
-          sha256sum *.tar.gz > checksums.txt
+          mkdir -p nifs
+          find dl -name '*.tar.gz' -exec cp {} nifs/ \;
+          (cd nifs && sha256sum *.tar.gz > checksums.txt)
+          ls -la nifs/
 
-      - name: Create GitHub release
-        uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v2
         with:
           files: |
-            release-artifacts/*.tar.gz
-            release-artifacts/checksums.txt
+            nifs/*.tar.gz
+            nifs/checksums.txt
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   publish_hex:
-    name: Publish to Hex.pm
     needs: release
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/')
@@ -164,32 +135,25 @@ jobs:
       ELIXIR_VERSION: "1.18.3"
       OTP_VERSION: "27.2"
       MNEME_BUILD: "1"
-      # Same base as `use ZiglerPrecompiled` / zigler_precompiled.download (path + filename both carry v<MIX_VER>).
+      # ZiglerPrecompiled: base_url + "/" + "Elixir.Mneme.Native-v<ver>-<triple>.so.tar.gz"
       MNEME_NIF_BASE_URL: https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Elixir
-        uses: erlef/setup-beam@v1
+      - uses: erlef/setup-beam@v1
         with:
           elixir-version: ${{ env.ELIXIR_VERSION }}
           otp-version: ${{ env.OTP_VERSION }}
 
-      - name: Install dependencies
-        run: mix deps.get
+      - run: mix deps.get
+      - run: mix zig.get
 
-      - name: Download Zig
-        run: mix zig.get
-
-      - name: Compile NIF from source
+      - run: mix compile --warnings-as-errors
         env:
           MIX_ENV: dev
-        run: mix compile --warnings-as-errors
 
-      - name: Generate checksum file from GitHub Release
-        run: mix zigler_precompiled.download Mneme.Native --all --print
+      - run: mix zigler_precompiled.download Mneme.Native --all --print
 
-      - name: Publish to Hex
-        run: mix hex.publish --yes
+      - run: mix hex.publish --yes
         env:
           HEX_API_KEY: ${{ secrets.HEX_API_KEY }}

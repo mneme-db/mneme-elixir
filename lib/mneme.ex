@@ -42,7 +42,7 @@ defmodule Mneme do
   """
   @spec version() :: String.t()
   def version do
-    case Application.spec(:mneme, :vsn) do
+    case Application.spec(:mnemedb_client, :vsn) do
       nil -> "0.0.0"
       vsn -> List.to_string(vsn)
     end

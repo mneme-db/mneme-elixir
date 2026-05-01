@@ -1,9 +1,9 @@
-defmodule Mneme.MixProject do
+defmodule MnemeDbClient.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :mneme,
+      app: :mnemedb_client,
       version: "0.1.0",
       elixir: "~> 1.18",
       preferred_cli_env: [
@@ -27,7 +27,7 @@ defmodule Mneme.MixProject do
 
   def application do
     [
-      mod: {Mneme.Application, []},
+      mod: {MnemeDbClient.Application, []},
       extra_applications: [:logger]
     ]
   end
@@ -71,7 +71,7 @@ defmodule Mneme.MixProject do
 
   defp package do
     [
-      name: "mneme",
+      name: "mnemedb_client",
       files: [
         "lib",
         "native",
